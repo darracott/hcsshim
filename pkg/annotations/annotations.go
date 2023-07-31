@@ -256,6 +256,9 @@ const (
 	// GuestStateFile specifies the path of the vmgs file to use if required. Only applies in SNP mode.
 	GuestStateFile = "io.microsoft.virtualmachine.lcow.gueststatefile"
 
+	// DmVerityVhdFile specifies the path of the VHD (with embedded dmverity data) file to use if required. Only applies in SNP mode.
+	DmVerityVhdFile = "io.microsoft.virtualmachine.lcow.dmverity-vhd-file"
+
 	// UVMSecurityPolicyEnv specifies if confidential containers' related information
 	// should be written to containers' rootfs. The filenames and location are defined
 	// by securitypolicy.PolicyFilename, securitypolicy.HostAMDCertFilename and
