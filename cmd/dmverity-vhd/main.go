@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -29,6 +30,7 @@ const (
 	outputDirFlag     = "out-dir"
 	dockerFlag        = "docker"
 	tarballFlag       = "tarball"
+	FsTarballFlag     = "fs-tarball"
 	hashDeviceVhdFlag = "hash-dev-vhd"
 	maxVHDSize        = dmverity.RecommendedVHDSizeGB
 )
@@ -53,6 +55,7 @@ func main() {
 	app.Commands = []cli.Command{
 		createVHDCommand,
 		rootHashVHDCommand,
+		convertTarCommand,
 	}
 	app.Usage = usage
 	app.Flags = []cli.Flag{
@@ -128,6 +131,82 @@ func fetchImageLayers(ctx *cli.Context) (layers []v1.Layer, err error) {
 	conf, _ := img.ConfigName()
 	log.Debugf("Image id: %s", conf.String())
 	return img.Layers()
+}
+
+var convertTarCommand = cli.Command{
+	Name:  "convert",
+	Usage: "takes local tar file and creates VHD inside the output directory with dm-verity super block and merkle tree embedded in the VHD",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:     FsTarballFlag + ",fst",
+			Usage:    "Required: path to tarball",
+			Required: true,
+		},
+		cli.StringFlag{
+			Name:     outputDirFlag + ",o",
+			Usage:    "Required: output directory path",
+			Required: true,
+		},
+	},
+	Action: func(ctx *cli.Context) error {
+		verbose := ctx.GlobalBool(verboseFlag)
+		if verbose {
+			log.SetLevel(log.DebugLevel)
+		}
+
+		outDir := ctx.String(outputDirFlag)
+		if _, err := os.Stat(outDir); os.IsNotExist(err) {
+			log.Debugf("creating output directory %q", outDir)
+			if err := os.MkdirAll(outDir, 0755); err != nil {
+				return errors.Wrapf(err, "failed to create output directory %s", outDir)
+			}
+		}
+
+		log.Debug("creating VHD with dm-verity:")
+		vhdName := strings.Replace(filepath.Base(ctx.String(FsTarballFlag)), ".tar", ".vhd", 1)
+		vhdPath := filepath.Join(ctx.String(outputDirFlag), vhdName)
+		out, err := os.Create(vhdPath)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create vhd %s", vhdPath)
+		}
+
+		fsTarballPath := ctx.String(FsTarballFlag)
+		in := os.Stdin
+		if fsTarballPath != "" {
+			in, err = os.Open(fsTarballPath)
+			if err != nil {
+				return err
+			}
+		}
+
+		log.Debug("converting tar to VHD")
+		opts := []tar2ext4.Option{
+			tar2ext4.AppendDMVerity,
+			tar2ext4.MaximumDiskSize(maxVHDSize),
+		}
+		if err := tar2ext4.Convert(in, out, opts...); err != nil {
+			return errors.Wrap(err, "failed to convert tar to ext4")
+		}
+		if err := tar2ext4.ConvertToVhd(out); err != nil {
+			return errors.Wrap(err, "failed to append VHD footer")
+		}
+		fmt.Fprintf(os.Stdout, "Tarball %d: VHD created at %s\n", fsTarballPath, vhdPath)
+
+		// Get size of device data without hash data
+		sb, err := tar2ext4.ReadExt4SuperBlock(vhdPath)
+		if err != nil {
+			return errors.Wrap(err, "failed to read ext4 super block")
+		}
+		blockSize := 1024 * (1 << sb.LogBlockSize)
+		ext4SizeInBytes := int64(blockSize) * int64(sb.BlocksCountLow)
+
+		dmvsb, err := dmverity.ReadDMVerityInfo(vhdPath, ext4SizeInBytes)
+		if err != nil {
+			return errors.Wrap(err, "failed to read dm-verity super block")
+		}
+		fmt.Fprintf(os.Stdout, "Tarball %d: VHD created at %s\nRootHash: %s\n", fsTarballPath, vhdPath, dmvsb.RootDigest)
+		return nil
+	},
 }
 
 var createVHDCommand = cli.Command{
@@ -282,8 +361,11 @@ var rootHashVHDCommand = cli.Command{
 				return "", err
 			}
 			defer rc.Close()
-
-			hash, err := tar2ext4.ConvertAndComputeRootDigest(rc)
+			options := []tar2ext4.Option{
+				tar2ext4.ConvertWhiteout,
+				tar2ext4.MaximumDiskSize(dmverity.RecommendedVHDSizeGB),
+			}
+			hash, err := tar2ext4.ConvertAndComputeRootDigest(rc, options...)
 			if err != nil {
 				return "", err
 			}

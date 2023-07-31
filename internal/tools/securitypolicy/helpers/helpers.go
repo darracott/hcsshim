@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
+	"github.com/Microsoft/hcsshim/ext4/dmverity"
 	"github.com/Microsoft/hcsshim/ext4/tar2ext4"
 	sp "github.com/Microsoft/hcsshim/pkg/securitypolicy"
 )
@@ -45,7 +46,11 @@ func ComputeLayerHashes(img v1.Image) ([]string, error) {
 			return nil, err
 		}
 
-		hashString, err := tar2ext4.ConvertAndComputeRootDigest(r)
+		options := []tar2ext4.Option{
+			tar2ext4.ConvertWhiteout,
+			tar2ext4.MaximumDiskSize(dmverity.RecommendedVHDSizeGB),
+		}
+		hashString, err := tar2ext4.ConvertAndComputeRootDigest(r, options...)
 		if err != nil {
 			return nil, err
 		}

@@ -298,7 +298,7 @@ func Ext4FileSystemSize(r io.ReadSeeker) (int64, int, error) {
 // input tar stream, computes the resulting file image's cryptographic hashes (merkle tree) and returns
 // merkle tree root digest. Convert is called with minimal options: ConvertWhiteout and MaximumDiskSize
 // set to dmverity.RecommendedVHDSizeGB.
-func ConvertAndComputeRootDigest(r io.Reader) (string, error) {
+func ConvertAndComputeRootDigest(r io.Reader, options ...Option) (string, error) {
 	out, err := os.CreateTemp("", "")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary file: %s", err)
@@ -308,10 +308,6 @@ func ConvertAndComputeRootDigest(r io.Reader) (string, error) {
 	}()
 	defer out.Close()
 
-	options := []Option{
-		ConvertWhiteout,
-		MaximumDiskSize(dmverity.RecommendedVHDSizeGB),
-	}
 	if err := ConvertTarToExt4(r, out, options...); err != nil {
 		return "", fmt.Errorf("failed to convert tar to ext4: %s", err)
 	}
