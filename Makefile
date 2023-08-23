@@ -49,6 +49,38 @@ test:
 
 rootfs: out/rootfs.vhd
 
+snp: out/dm-startup.sh
+
+out/dm-startup.sh:	out/dmverity_rootfs.vhd
+    # The startup script required by vmgs which mounts dmverity_rootfs when using SNP.
+    # Configure the script with the root hash of the root filesystem for dm-verity.
+	cp dm-startup.sh.template $@
+	sed -i "s/<ROOT_HASH>/$(shell cat out/dmverity_rootfs.hash)/" out/dm-startup.sh
+	sed -i "s/<BLOCK_COUNT>/$(shell cat out/dmverity_rootfs.blockcount)/" out/dm-startup.sh
+	sed -i "s/<HASH_OFFSET>/$(shell cat out/dmverity_rootfs.hashoffset)/" out/dm-startup.sh
+
+out/dmverity_rootfs.vhd: out/dmverity_rootfs.tar.gz bin/cmd/dmverity-vhd
+    # Format the root filesystem VHD which will be mounted by initramfs via dm-verity when using SNP.
+	gzip -f -d ./out/dmverity_rootfs.tar.gz
+	./bin/cmd/dmverity-vhd -v convert --fst out/dmverity_rootfs.tar -o out | awk '/^RootHash/{ print $$2 }' > out/dmverity_rootfs.hash
+    # Retrieve info required by dm-verity at boot time
+    # Get the blocksize of rootfs
+	dumpe2fs out/dmverity_rootfs.vhd | awk '/^Block size/{ print $$3 }' > out/dmverity_rootfs.blocksize
+    # Get the number of blocks in root filesystem (not including the embedded merkle tree)
+	dumpe2fs out/dmverity_rootfs.vhd | awk '/^Block count/{ print $$3 }' > out/dmverity_rootfs.blockcount
+    # Calculate the hash offset, i.e the location of the divide between the real filesystem data and the embedded dmverity data
+	echo $$(( $$(cat out/dmverity_rootfs.blockcount) * $$(cat out/dmverity_rootfs.blocksize) )) > out/dmverity_rootfs.hashoffset
+
+
+out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2
+	rm -rf dmverity-rootfs-conv
+	mkdir dmverity-rootfs-conv
+	gunzip -c out/initrd.img | (cd dmverity-rootfs-conv && cpio -imd)
+	cp startup_2.sh dmverity-rootfs-conv/startup_2.sh
+	cp bin/init2 dmverity-rootfs-conv/init2
+	tar -zcf $@ -C dmverity-rootfs-conv .
+	rm -rf dmverity-rootfs-conv
+
 out/rootfs.vhd: out/rootfs.tar.gz bin/cmd/tar2ext4
 	gzip -f -d ./out/rootfs.tar.gz
 	bin/cmd/tar2ext4 -vhd -i ./out/rootfs.tar -o $@
@@ -74,7 +106,7 @@ out/delta-dev.tar.gz: out/delta.tar.gz bin/internal/tools/snp-report
 	tar -zcf $@ -C rootfs-dev .
 	rm -rf rootfs-dev
 
-out/delta.tar.gz: bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths Makefile
+out/delta.tar.gz: bin/init2 bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths Makefile
 	@mkdir -p out
 	rm -rf rootfs
 	mkdir -p rootfs/bin/
@@ -94,7 +126,7 @@ out/delta.tar.gz: bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools bin/cmd/ho
 	tar -zcf $@ -C rootfs .
 	rm -rf rootfs
 
-bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths bin/cmd/tar2ext4 bin/internal/tools/snp-report:
+bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths bin/cmd/tar2ext4 bin/internal/tools/snp-report bin/cmd/dmverity-vhd:
 	@mkdir -p $(dir $@)
 	GOOS=linux $(GO_BUILD) -o $@ $(SRCROOT)/$(@:bin/%=%)
 
@@ -103,6 +135,10 @@ bin/vsockexec: vsockexec/vsockexec.o vsockexec/vsock.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
 bin/init: init/init.o vsockexec/vsock.o
+	@mkdir -p bin
+	$(CC) $(LDFLAGS) -o $@ $^
+
+bin/init2: init2/init2.o vsockexec/vsock.o
 	@mkdir -p bin
 	$(CC) $(LDFLAGS) -o $@ $^
 
