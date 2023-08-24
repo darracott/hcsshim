@@ -34,6 +34,10 @@ GCS_TOOLS=\
 	generichook \
 	install-drivers
 
+VMGS_TOOL:=
+IGVM_TOOL:=
+KERNEL_PATH:=
+
 .PHONY: all always rootfs test
 
 .DEFAULT_GOAL := all
@@ -49,7 +53,44 @@ test:
 
 rootfs: out/rootfs.vhd
 
-snp: out/dm-startup.sh
+snp: out/kernelinitrd.vmgs out/containerd-shim-runhcs-v1.exe
+
+out/kernelinitrd.vmgs: out/kernelinitrd.bin
+	rm -f $@
+	$(VMGS_TOOL) create --filepath $@ --filesize 67108864
+	$(VMGS_TOOL) write --filepath $@ --datapath out/kernelinitrd.bin -i=8
+
+out/v2056.vmgs: out/v2056.bin
+	rm -f $@
+	$(VMGS_TOOL) create --filepath $@ --filesize 67108864
+	$(VMGS_TOOL) write --filepath $@ --datapath out/v2056.bin -i=8
+
+
+out/v2056.bin: out/kernelinitrd.cpio.gz
+	rm -f $@
+	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/startup_v2056.sh systemd.verity=1 systemd.verity_root_data=/dev/sda systemd.verity_root_options=panic-on-corruption" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+
+out/kernelinitrd.bin: out/kernelinitrd.cpio.gz
+	rm -f $@
+	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh systemd.verity=1 systemd.verity_root_data=/dev/sda systemd.verity_root_options=panic-on-corruption" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+
+
+out/kernelinitrd.cpio.gz: out/dm-startup.sh
+	rm -rf kernelinitrd-rootfs
+	mkdir kernelinitrd-rootfs
+	tar -xf $(BASE) -C kernelinitrd-rootfs
+	tar -xzf out/delta.tar.gz -C kernelinitrd-rootfs
+	# cp bin/internal/tools/snp-report kernelinitrd-rootfs/bin/snp-report
+	cp out/dm-startup.sh kernelinitrd-rootfs/dm-startup.sh
+	chmod a+x kernelinitrd-rootfs/dm-startup.sh
+
+    # Reduce kernelinitrd size by removing unnecessary files
+	./reduce-kernelinitrd-size.sh $(SRCROOT)
+	find ./kernelinitrd-rootfs  | sudo xargs touch -hmt 199912310000
+	find ./kernelinitrd-rootfs -print0 | sudo cpio --null -o --format=newc --reset-access-time | sudo gzip -9 > $@
+
+	rm -rf kernelinitrd-rootfs
+
 
 out/dm-startup.sh:	out/dmverity_rootfs.vhd
     # The startup script required by vmgs which mounts dmverity_rootfs when using SNP.
@@ -60,7 +101,7 @@ out/dm-startup.sh:	out/dmverity_rootfs.vhd
 	sed -i "s/<HASH_OFFSET>/$(shell cat out/dmverity_rootfs.hashoffset)/" out/dm-startup.sh
 
 out/dmverity_rootfs.vhd: out/dmverity_rootfs.tar.gz bin/cmd/dmverity-vhd
-    # Format the root filesystem VHD which will be mounted by initramfs via dm-verity when using SNP.
+    # Format the root filesystem VHD which will be mounted by kernelinitrd via dm-verity when using SNP.
 	gzip -f -d ./out/dmverity_rootfs.tar.gz
 	./bin/cmd/dmverity-vhd -v convert --fst out/dmverity_rootfs.tar -o out | awk '/^RootHash/{ print $$2 }' > out/dmverity_rootfs.hash
     # Retrieve info required by dm-verity at boot time
@@ -125,6 +166,9 @@ out/delta.tar.gz: bin/init2 bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools 
 		jq -r '.DATETIME' $(subst .tar,.testdata.json,$(BASE)) 2>/dev/null > rootfs/info/build.date)
 	tar -zcf $@ -C rootfs .
 	rm -rf rootfs
+
+out/containerd-shim-runhcs-v1.exe:
+	GOOS=windows $(GO_BUILD) -o $@ $(SRCROOT)/cmd/containerd-shim-runhcs-v1
 
 bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths bin/cmd/tar2ext4 bin/internal/tools/snp-report bin/cmd/dmverity-vhd:
 	@mkdir -p $(dir $@)
