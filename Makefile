@@ -84,12 +84,12 @@ out/kernelinitrd.cpio.gz: out/dm-startup.sh
 	cp out/dm-startup.sh kernelinitrd-rootfs/dm-startup.sh
 	chmod a+x kernelinitrd-rootfs/dm-startup.sh
 
-    # Reduce kernelinitrd size by removing unnecessary files
+    # Reduce kernelinitrd size by removing unnecessary file
 	./reduce-kernelinitrd-size.sh $(SRCROOT)
-	find ./kernelinitrd-rootfs  | sudo xargs touch -hmt 199912310000
-	find ./kernelinitrd-rootfs -print0 | sudo cpio --null -o --format=newc --reset-access-time | sudo gzip -9 > $@
+	find ./kernelinitrd-rootfs | sudo xargs touch -hmt 199912310000
+	cd ./kernelinitrd-rootfs; find . -print0 | sudo cpio --null -o --format=newc --reset-access-time | sudo gzip -9 > ../$@
 
-	rm -rf kernelinitrd-rootfs
+	#rm -rf kernelinitrd-rootfs
 
 
 out/dm-startup.sh:	out/dmverity_rootfs.vhd
@@ -153,6 +153,7 @@ out/delta.tar.gz: bin/init2 bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools 
 	mkdir -p rootfs/bin/
 	mkdir -p rootfs/info/
 	cp bin/init rootfs/
+	cp bin/init2 rootfs/
 	cp bin/vsockexec rootfs/bin/
 	cp bin/cmd/gcs rootfs/bin/
 	cp bin/cmd/gcstools rootfs/bin/
