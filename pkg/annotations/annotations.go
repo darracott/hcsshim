@@ -70,6 +70,7 @@ const (
 	// `spec.Windows.Resources.Storage.Iops`.
 	ContainerStorageQoSIopsMaximum = "io.microsoft.container.storage.qos.iopsmaximum"
 
+	// Deprecated: GPU VHDs are no longer supported.
 	// GPUVHDPath overrides the default path to search for the gpu vhd
 	GPUVHDPath = "io.microsoft.lcow.gpuvhdpath"
 
@@ -125,7 +126,7 @@ const (
 	// MemoryHighMMIOBaseInMB indicates the high MMIO base in MB
 	MemoryHighMMIOBaseInMB = "io.microsoft.virtualmachine.computetopology.memory.highmmiobaseinmb"
 
-	// MemoryHighMMIOBaseInMB indicates the high MMIO gap in MB
+	// MemoryHighMMIOGapInMB indicates the high MMIO gap in MB
 	MemoryHighMMIOGapInMB = "io.microsoft.virtualmachine.computetopology.memory.highmmiogapinmb"
 
 	// ProcessorCount overrides the hypervisor isolated vCPU count set
