@@ -1,3 +1,5 @@
+#! /bin/bash
+
 # Reduce initramfs size
 if [[ $# -eq 0 ]] ; then
     echo 'Must be given path to root hcsshim'

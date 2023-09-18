@@ -76,6 +76,8 @@ out/kernelinitrd.bin: out/kernelinitrd.cpio.gz
 
 
 out/kernelinitrd.cpio.gz: out/dm-startup.sh
+    # The filesystem built up in kernelinitrd-rootfs is only used temporarily in order to
+    # mount and switch to the dmverity backed rootfs (dmverity_rootfs.vhd).
 	rm -rf kernelinitrd-rootfs
 	mkdir kernelinitrd-rootfs
 	tar -xf $(BASE) -C kernelinitrd-rootfs
@@ -87,14 +89,15 @@ out/kernelinitrd.cpio.gz: out/dm-startup.sh
     # Reduce kernelinitrd size by removing unnecessary file
 	./reduce-kernelinitrd-size.sh $(SRCROOT)
 	find ./kernelinitrd-rootfs | sudo xargs touch -hmt 199912310000
+    # No need to cd back as Make will execute each cmd in its own shell
 	cd ./kernelinitrd-rootfs; find . -print0 | sudo cpio --null -o --format=newc --reset-access-time | sudo gzip -9 > ../$@
 
 	#rm -rf kernelinitrd-rootfs
 
 
 out/dm-startup.sh:	out/dmverity_rootfs.vhd
-    # The startup script required by vmgs which mounts dmverity_rootfs when using SNP.
-    # Configure the script with the root hash of the root filesystem for dm-verity.
+    # The startup script required by the kernelinitrd to mount dmverity_rootfs when using SNP.
+    # Configure the script with the root hash of the root filesystem (dmverity_rootfs).
 	cp dm-startup.sh.template $@
 	sed -i "s/<ROOT_HASH>/$(shell cat out/dmverity_rootfs.hash)/" out/dm-startup.sh
 	sed -i "s/<BLOCK_COUNT>/$(shell cat out/dmverity_rootfs.blockcount)/" out/dm-startup.sh
@@ -114,6 +117,7 @@ out/dmverity_rootfs.vhd: out/dmverity_rootfs.tar.gz bin/cmd/dmverity-vhd
 
 
 out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2
+    # The filesystem built in dmverity-rootfs-conv eventually becomes the Pod's root filesystem
 	rm -rf dmverity-rootfs-conv
 	mkdir dmverity-rootfs-conv
 	gunzip -c out/initrd.img | (cd dmverity-rootfs-conv && cpio -imd)
@@ -147,13 +151,12 @@ out/delta-dev.tar.gz: out/delta.tar.gz bin/internal/tools/snp-report
 	tar -zcf $@ -C rootfs-dev .
 	rm -rf rootfs-dev
 
-out/delta.tar.gz: bin/init2 bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths Makefile
+out/delta.tar.gz: bin/init bin/vsockexec bin/cmd/gcs bin/cmd/gcstools bin/cmd/hooks/wait-paths Makefile
 	@mkdir -p out
 	rm -rf rootfs
 	mkdir -p rootfs/bin/
 	mkdir -p rootfs/info/
 	cp bin/init rootfs/
-	cp bin/init2 rootfs/
 	cp bin/vsockexec rootfs/bin/
 	cp bin/cmd/gcs rootfs/bin/
 	cp bin/cmd/gcstools rootfs/bin/
