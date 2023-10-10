@@ -22,6 +22,7 @@ type params struct {
 	convertBackslash bool
 	appendVhdFooter  bool
 	appendDMVerity   bool
+	noSuperblock     bool
 	ext4opts         []compactext4.Option
 }
 
@@ -52,6 +53,15 @@ func AppendDMVerity(p *params) {
 	p.appendDMVerity = true
 }
 
+// noSuperblock instructs the converter to avoid adding a dm-verity superblock
+// to the filesystem. This is required when booting directly from the kernel
+// commandline into a dmverity protected filesystem.
+func NoSuperblock(noSuperblock bool) Option {
+	return func(p *params) {
+		p.noSuperblock = noSuperblock
+	}
+}
+
 // InlineData instructs the converter to write small files into the inode
 // structures directly. This creates smaller images but currently is not
 // compatible with DAX.
@@ -80,7 +90,7 @@ func ConvertTarToExt4(r io.Reader, w io.ReadWriteSeeker, options ...Option) erro
 	for _, opt := range options {
 		opt(&p)
 	}
-
+	// r.Seek(0, io.SeekStart)
 	t := tar.NewReader(bufio.NewReader(r))
 	fs := compactext4.NewWriter(w, p.ext4opts...)
 	for {
@@ -193,28 +203,72 @@ func ConvertTarToExt4(r io.Reader, w io.ReadWriteSeeker, options ...Option) erro
 	return fs.Close()
 }
 
+func copyFileContents(src, dst string) (err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return
+	}
+	defer func() {
+		cerr := out.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		return
+	}
+	err = out.Sync()
+	return
+}
+
 // Convert wraps ConvertTarToExt4 and conditionally computes (and appends) the file image's cryptographic
 // hashes (merkle tree) or/and appends a VHD footer.
-func Convert(r io.Reader, w io.ReadWriteSeeker, options ...Option) error {
+func Convert(r io.Reader, wpath string, w io.ReadWriteSeeker, options ...Option) (*dmverity.VerityInfo, error) {
 	var p params
 	for _, opt := range options {
 		opt(&p)
 	}
 
+	// if err := ConvertTarToExt4(r, wExt4, options...); err != nil {
+	// 	return nil, err
+	// }
+	// size, err := wExt4.Seek(0, io.SeekEnd)
+	// if err != nil {
+	// 	return err
+	// }
+	// binary.Write(wExt4, binary.BigEndian, makeFixedVHDFooter(size))
+	// if err := ConvertTarToExt4(r, wExt4Tree, options...); err != nil {
+	// 	return nil, err
+	// }
 	if err := ConvertTarToExt4(r, w, options...); err != nil {
-		return err
+		return nil, err
 	}
+	copyFileContents(wpath, wpath+".ext4")
 
+	dmVerityInfo := new(dmverity.VerityInfo)
+	var err error
 	if p.appendDMVerity {
-		if err := dmverity.ComputeAndWriteHashDevice(w, w); err != nil {
-			return err
+		if dmVerityInfo, err = dmverity.ComputeAndWriteHashDevice(w, w, p.noSuperblock); err != nil {
+			return dmVerityInfo, err
 		}
 	}
+	copyFileContents(wpath, wpath+".ext4.tree")
+
+	// if p.appendDMVerity {
+	// 	if dmVerityInfo, err = dmverity.ComputeAndWriteHashDevice(wExt4Tree, wExt4Tree, p.noSuperblock); err != nil {
+	// 		return dmVerityInfo, err
+	// 	}
+	// }
 
 	if p.appendVhdFooter {
-		return ConvertToVhd(w)
+		return dmVerityInfo, ConvertToVhd(w)
 	}
-	return nil
+	return dmVerityInfo, nil
 }
 
 // ReadExt4SuperBlock reads and returns ext4 super block from given device.

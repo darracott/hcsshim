@@ -34,9 +34,10 @@ GCS_TOOLS=\
 	generichook \
 	install-drivers
 
-VMGS_TOOL:=
-IGVM_TOOL:=
-KERNEL_PATH:=
+VMGS_TOOL:=/home/jp1/ham/src/Parma/bin/vmgstool
+IGVM_TOOL:=/home/jp1/ham/linux/LSG-linux-rolling/scripts/igvmfile.py
+# this is now a 5.15 kernel
+KERNEL_PATH:=/home/jp1/ham/linux/LSG-linux-rolling/arch/x86/boot/bzImage
 
 .PHONY: all always rootfs test
 
@@ -53,7 +54,18 @@ test:
 
 rootfs: out/rootfs.vhd
 
-snp: out/kernelinitrd.vmgs out/containerd-shim-runhcs-v1.exe
+snp: out/kernelinitrd.vmgs out/containerd-shim-runhcs-v1.exe out/hash_device.vhd out/dmverity_rootfs_nosb.vhd
+
+out/hash_device.vhd: out/hash_device
+	cp out/hash_device $@
+	./bin/cmd/dmverity-vhd -v convert --to-vhd --fst $@ -o foo
+
+out/hash_device: dmverity_rootfs.vhd
+	veritysetup format --no-superblock --salt 0000000000000000000000000000000000000000000000000000000000000000 out/dmverity_rootfs.vhd.ext4 $@
+
+out/dmverity_rootfs_nosb.vhd: dmverity_rootfs.vhd
+	cp out/dmverity_rootfs.vhd.ext4 $@
+	./bin/cmd/dmverity-vhd -v convert --to-vhd --fst $@ -o foo
 
 out/kernelinitrd.vmgs: out/kernelinitrd.bin
 	rm -f $@
@@ -62,20 +74,56 @@ out/kernelinitrd.vmgs: out/kernelinitrd.bin
 
 out/v2056.vmgs: out/v2056.bin
 	rm -f $@
+	rm -f out/v2056a.vmgs
 	$(VMGS_TOOL) create --filepath $@ --filesize 67108864
 	$(VMGS_TOOL) write --filepath $@ --datapath out/v2056.bin -i=8
+	$(VMGS_TOOL) create --filepath out/v2056a.vmgs --filesize 67108864
+	$(VMGS_TOOL) write --filepath out/v2056a.vmgs --datapath out/v2056a.bin -i=8
 
+ROOTFS_DEVICE:=/dev/sda
+VERITY_DEVICE:=/dev/sdb
+# ^^^ is this ok?
+# SALT=$(shell cat out/dmverity_rootfs.salt)
+# ROOT_HASH=$(shell cat out/dmverity_rootfs.hash)
+# DATA_BLOCK_COUNT=$(shell cat out/dmverity_rootfs.blockcount)
+# DATA_BLOCK_SIZE=$(shell cat out/dmverity_rootfs.datablocksize)
+# HASH_BLOCK_SIZE=$(DATA_BLOCK_SIZE)
+# NUM_SECTORS=$(shell cat out/dmverity_rootfs.datasectors)
 
 out/v2056.bin: out/kernelinitrd.cpio.gz
 	rm -f $@
-	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/startup_v2056.sh systemd.verity=1 systemd.verity_root_data=/dev/sda systemd.verity_root_options=panic-on-corruption" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 2 ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+
+	# python3 $(IGVM_TOOL) -o out/v2056a.bin -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/bin/bash.bash dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt)\" -- -c /startup_2.sh " -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(IGVM_TOOL) -o out/v2056a.bin -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+    # Remember to REFORMAT the VHD WITH --no-superblock
+    # dm-verity, <name> x
+    # <blank>,   <uuid> x
+    # 3,         <minor> x go blank
+    # ro,        <flags> x
+    # <TABLE>
+    # 0        <start_sector> x
+    # 1638400  <num_sectors>  x
+    # verity   <target_type> x
+    # <TARGET_ARGS>
+    # 1          <version> x
+    # /dev/sdc1  <dev>   @ROOTFS_DEVICE@ ???
+    # /dev/sdc2  <hash_dev>   @VERITY_DEVICE@ ???
+    # 4096       <data_block_size> x
+    # 4096       <hash_block_size> x
+    # 204800     <num_data_blocks> x
+    # 1          <hash_start_block> x go with 0
+    # sha256     <algorithm>  x
+    # ac87db56303c9c1da433d7209b5a6ef3e4779df141200cbd7c157dcb8dd89c42 <digest>  x
+    # 5ebfe87f7df3235b80a117ebc4078e44f55045487ad4a96581d1adb564615b51 <salt> x
 
 out/kernelinitrd.bin: out/kernelinitrd.cpio.gz
 	rm -f $@
-	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh systemd.verity=1 systemd.verity_root_data=/dev/sda systemd.verity_root_options=panic-on-corruption" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_2.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+    # python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh" -rdinit out/kernelinitrd.cpio.gz -vtl 0
 
 
-out/kernelinitrd.cpio.gz: out/dm-startup.sh
+out/kernelinitrd.cpio.gz: out/dm-startup.sh out/startup_v2056.sh
     # The filesystem built up in kernelinitrd-rootfs is only used temporarily in order to
     # mount and switch to the dmverity backed rootfs (dmverity_rootfs.vhd).
 	rm -rf kernelinitrd-rootfs
@@ -84,36 +132,63 @@ out/kernelinitrd.cpio.gz: out/dm-startup.sh
 	tar -xzf out/delta.tar.gz -C kernelinitrd-rootfs
 	# cp bin/internal/tools/snp-report kernelinitrd-rootfs/bin/snp-report
 	cp out/dm-startup.sh kernelinitrd-rootfs/dm-startup.sh
+	cp out/startup_v2056.sh kernelinitrd-rootfs/startup_v2056.sh
 	chmod a+x kernelinitrd-rootfs/dm-startup.sh
+	cp /home/jp1/ham/src/Parma/bin/mkfs.xfs kernelinitrd-rootfs/bin/mkfs.xfs
+	chmod a+x kernelinitrd-rootfs/bin/mkfs.xfs
 
-    # Reduce kernelinitrd size by removing unnecessary file
-	./reduce-kernelinitrd-size.sh $(SRCROOT)
+    # Reduce kernelinitrd size by removing unnecessary files
+	# ./reduce-kernelinitrd-size.sh $(SRCROOT)
 	find ./kernelinitrd-rootfs | sudo xargs touch -hmt 199912310000
     # No need to cd back as Make will execute each cmd in its own shell
 	cd ./kernelinitrd-rootfs; find . -print0 | sudo cpio --null -o --format=newc --reset-access-time | sudo gzip -9 > ../$@
 
 	#rm -rf kernelinitrd-rootfs
 
+out/startup_v2056.sh:	out/dmverity_rootfs.vhd
+    # The startup script required by the kernelinitrd to mount dmverity_rootfs when using SNP.
+    # Configure the script with the root hash of the root filesystem (dmverity_rootfs).
+	cp startup_v2056.sh.template $@
+	sed -i "s/<ROOT_HASH>/$(shell cat out/dmverity_rootfs.rootdigest)/" out/startup_v2056.sh
+	sed -i "s/<BLOCK_COUNT>/$(shell cat out/dmverity_rootfs.datablocks)/" out/startup_v2056.sh
+	sed -i "s/<HASH_OFFSET>/$(shell cat out/dmverity_rootfs.hashoffset)/" out/startup_v2056.sh
+
 
 out/dm-startup.sh:	out/dmverity_rootfs.vhd
     # The startup script required by the kernelinitrd to mount dmverity_rootfs when using SNP.
     # Configure the script with the root hash of the root filesystem (dmverity_rootfs).
 	cp dm-startup.sh.template $@
-	sed -i "s/<ROOT_HASH>/$(shell cat out/dmverity_rootfs.hash)/" out/dm-startup.sh
-	sed -i "s/<BLOCK_COUNT>/$(shell cat out/dmverity_rootfs.blockcount)/" out/dm-startup.sh
+	sed -i "s/<ROOT_HASH>/$(shell cat out/dmverity_rootfs.rootdigest)/" out/dm-startup.sh
+	sed -i "s/<BLOCK_COUNT>/$(shell cat out/dmverity_rootfs.datablocks)/" out/dm-startup.sh
 	sed -i "s/<HASH_OFFSET>/$(shell cat out/dmverity_rootfs.hashoffset)/" out/dm-startup.sh
 
 out/dmverity_rootfs.vhd: out/dmverity_rootfs.tar.gz bin/cmd/dmverity-vhd
     # Format the root filesystem VHD which will be mounted by kernelinitrd via dm-verity when using SNP.
 	gzip -f -d ./out/dmverity_rootfs.tar.gz
-	./bin/cmd/dmverity-vhd -v convert --fst out/dmverity_rootfs.tar -o out | awk '/^RootHash/{ print $$2 }' > out/dmverity_rootfs.hash
+	# veritysetup format --data-blocks 35658 --data-block-size 4096 --hash-offset 146055168 out/rootfs1.vhd out/rootfs1.vhd
+	## ./bin/cmd/dmverity-vhd -v convert --no-superblock --fst out/dmverity_rootfs.tar -o out | awk '/^RootHash/{ print $$2 }' > out/dmverity_rootfs.hash
+	# ./bin/cmd/dmverity-vhd -v convert --no-superblock --fst out/dmverity_rootfs.tar -o out > out/dmverity_rootfs.info
+	./bin/cmd/dmverity-vhd -v convert --fst out/dmverity_rootfs.tar -o out > out/dmverity_rootfs.info
     # Retrieve info required by dm-verity at boot time
     # Get the blocksize of rootfs
-	dumpe2fs out/dmverity_rootfs.vhd | awk '/^Block size/{ print $$3 }' > out/dmverity_rootfs.blocksize
+	cat out/dmverity_rootfs.info | awk '/^RootDigest/{ print $$2 }' > out/dmverity_rootfs.rootdigest
+	cat out/dmverity_rootfs.info | awk '/^HashOffsetInBlocks/{ print $$2 }' > out/dmverity_rootfs.hashoffsetinblocks
+	cat out/dmverity_rootfs.info | awk '/^Salt/{ print $$2 }' > out/dmverity_rootfs.salt
+	cat out/dmverity_rootfs.info | awk '/^Algorithm/{ print $$2 }' > out/dmverity_rootfs.algorithm
+	cat out/dmverity_rootfs.info | awk '/^DataBlockSize/{ print $$2 }' > out/dmverity_rootfs.datablocksize
+	cat out/dmverity_rootfs.info | awk '/^HashBlockSize/{ print $$2 }' > out/dmverity_rootfs.hashblocksize
+	cat out/dmverity_rootfs.info | awk '/^DataBlocks/{ print $$2 }' > out/dmverity_rootfs.datablocks
+	echo $$(( $$(cat out/dmverity_rootfs.hashoffsetinblocks) * $$(cat out/dmverity_rootfs.datablocksize) / 512 )) > out/dmverity_rootfs.datasectors
+	echo $$(( $$(cat out/dmverity_rootfs.hashoffsetinblocks) * $$(cat out/dmverity_rootfs.datablocksize) )) > out/dmverity_rootfs.hashoffset
+
+
+	# dumpe2fs out/dmverity_rootfs.vhd | awk '/^Block size/{ print $$3 }' > out/dmverity_rootfs.datablocksize
     # Get the number of blocks in root filesystem (not including the embedded merkle tree)
-	dumpe2fs out/dmverity_rootfs.vhd | awk '/^Block count/{ print $$3 }' > out/dmverity_rootfs.blockcount
+	# dumpe2fs out/dmverity_rootfs.vhd | awk '/^Block count/{ print $$3 }' > out/dmverity_rootfs.blockcount
     # Calculate the hash offset, i.e the location of the divide between the real filesystem data and the embedded dmverity data
-	echo $$(( $$(cat out/dmverity_rootfs.blockcount) * $$(cat out/dmverity_rootfs.blocksize) )) > out/dmverity_rootfs.hashoffset
+	# echo $$(( $$(cat out/dmverity_rootfs.blockcount) * $$(cat out/dmverity_rootfs.datablocksize) )) > out/dmverity_rootfs.hashoffset
+	# openssl rand -hex 32 > out/dmverity_rootfs.salt
+
 
 
 out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2
@@ -122,9 +197,12 @@ out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2
 	mkdir dmverity-rootfs-conv
 	gunzip -c out/initrd.img | (cd dmverity-rootfs-conv && cpio -imd)
 	cp startup_2.sh dmverity-rootfs-conv/startup_2.sh
+	chmod a+x dmverity-rootfs-conv/startup_2.sh
 	cp bin/init2 dmverity-rootfs-conv/init2
+	cp /home/jp1/ham/src/Parma/bin/mkfs.xfs dmverity-rootfs-conv/bin/mkfs.xfs
+	chmod a+x dmverity-rootfs-conv/bin/mkfs.xfs
 	tar -zcf $@ -C dmverity-rootfs-conv .
-	rm -rf dmverity-rootfs-conv
+	# rm -rf dmverity-rootfs-conv
 
 out/rootfs.vhd: out/rootfs.tar.gz bin/cmd/tar2ext4
 	gzip -f -d ./out/rootfs.tar.gz

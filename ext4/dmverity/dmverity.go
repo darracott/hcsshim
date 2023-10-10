@@ -65,6 +65,11 @@ type dmveritySuperblock struct {
 	_ [168]byte
 }
 
+type DmVeritySummary struct {
+	superblock dmveritySuperblock
+	rootHash   []byte
+}
+
 // VerityInfo is minimal exported version of dmveritySuperblock
 type VerityInfo struct {
 	// Offset in blocks on hash device
@@ -148,6 +153,20 @@ func NewDMVeritySuperblock(size uint64) *dmveritySuperblock {
 	return superblock
 }
 
+func DMInfoFromSuperblock(dmvSB *dmveritySuperblock, rootHash []byte, noSuperblock bool) *VerityInfo {
+	return &VerityInfo{
+		RootDigest:         fmt.Sprintf("%x", rootHash),
+		Algorithm:          string(bytes.Trim(dmvSB.Algorithm[:], "\x00")),
+		Salt:               fmt.Sprintf("%x", dmvSB.Salt[:dmvSB.SaltSize]),
+		HashOffsetInBlocks: int64(dmvSB.DataBlocks),
+		SuperBlock:         !noSuperblock,
+		DataBlocks:         dmvSB.DataBlocks,
+		DataBlockSize:      dmvSB.DataBlockSize,
+		HashBlockSize:      blockSize,
+		Version:            dmvSB.Version,
+	}
+}
+
 func hash2(a, b []byte) []byte {
 	h := sha256.New()
 	h.Write(append(a, b...))
@@ -208,61 +227,98 @@ func ReadDMVerityInfoReader(r io.Reader) (*VerityInfo, error) {
 	}
 
 	rootHash := hash2(dmvSB.Salt[:dmvSB.SaltSize], block)
-	return &VerityInfo{
-		RootDigest:         fmt.Sprintf("%x", rootHash),
-		Algorithm:          string(bytes.Trim(dmvSB.Algorithm[:], "\x00")),
-		Salt:               fmt.Sprintf("%x", dmvSB.Salt[:dmvSB.SaltSize]),
-		HashOffsetInBlocks: int64(dmvSB.DataBlocks),
-		SuperBlock:         true,
-		DataBlocks:         dmvSB.DataBlocks,
-		DataBlockSize:      dmvSB.DataBlockSize,
-		HashBlockSize:      blockSize,
-		Version:            dmvSB.Version,
-	}, nil
+	dmVerityInfo := DMInfoFromSuperblock(dmvSB, rootHash, false)
+	return dmVerityInfo, nil
 }
 
 // ComputeAndWriteHashDevice builds merkle tree from a given io.ReadSeeker and
 // writes the result hash device (dm-verity super-block combined with merkle
 // tree) to io.Writer.
-func ComputeAndWriteHashDevice(r io.ReadSeeker, w io.Writer) error {
+func ComputeAndWriteHashDevice(r io.ReadSeeker, w io.Writer, noSuperblock bool) (*VerityInfo, error) {
 	// save current reader position
 	currBytePos, err := r.Seek(0, io.SeekCurrent)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// reset to the beginning to find the device size
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		return err
+		return nil, err
 	}
 
-	tree, err := MerkleTree(r)
+	tree, err := MerkleTree(r) // At this point we have r (which is actually the same as w) and we calculate the tree (and hence the hash)
+	// What could possibly change the filesystem from here onwards
 	if err != nil {
-		return errors.Wrap(err, "failed to build merkle tree")
+		return nil, errors.Wrap(err, "failed to build merkle tree")
 	}
 
-	devSize, err := r.Seek(0, io.SeekEnd)
+	devSize, err := r.Seek(0, io.SeekEnd) // We check the size of the device
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// reset reader to initial position
 	if _, err := r.Seek(currBytePos, io.SeekStart); err != nil {
-		return err
+		return nil, err
 	}
 
+	rootHash := RootHash(tree)
 	dmVeritySB := NewDMVeritySuperblock(uint64(devSize))
-	if err := binary.Write(w, binary.LittleEndian, dmVeritySB); err != nil {
-		return errors.Wrap(err, "failed to write dm-verity super-block")
+	dmVerityInfo := DMInfoFromSuperblock(dmVeritySB, rootHash, noSuperblock)
+	if noSuperblock == false {
+		if err := binary.Write(w, binary.LittleEndian, dmVeritySB); err != nil { // Here we don't change w or r
+			return nil, errors.Wrap(err, "failed to write dm-verity super-block")
+		}
+		// write super-block padding
+		padding := bytes.Repeat([]byte{0}, blockSize-(sbSize%blockSize))
+		if _, err = w.Write(padding); err != nil {
+			return nil, err
+		}
 	}
-	// write super-block padding
-	padding := bytes.Repeat([]byte{0}, blockSize-(sbSize%blockSize))
-	if _, err = w.Write(padding); err != nil {
-		return err
-	}
+	// So far we haven't changed the fs if noSuperblock is true
 	// write tree
-	if _, err := w.Write(tree); err != nil {
-		return errors.Wrap(err, "failed to write merkle tree")
+	// HERE WE DO CHANGE THE FS BUT WE HAVE EVIDENCE THAT THAT IS OK
+	// Becuase the kernel confirms the hash we know we have the correct hash offset and are writing the tree to the correct place
+	if _, err := w.Write(tree); err != nil { // here we write the tree to w which changes it but we record the hashoffset which means we can find it again and the kernel can cut it off later
+		return nil, errors.Wrap(err, "failed to write merkle tree")
 	}
-	return nil
+	return dmVerityInfo, nil
 }
+
+// func DropSuperblock(vhdPath string) error {
+// 	f, err := os.Open(vhdPath)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer f.Close()
+
+// 	// Skip first block, which is the verity superblock.
+// 	_, err = f.Seek(blockSize, io.SeekStart)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// Open output vhd.
+// 	fo, err := os.Create(vhdPath + "-ns")
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer fo.Close()
+
+// 	buf := make([]byte, 1024)
+// 	for {
+// 		n, err := f.Read(buf)
+// 		if err != nil && err != io.EOF {
+// 			return err
+// 		}
+// 		if n == 0 {
+// 			break
+// 		}
+
+// 		// Write each chunk
+// 		if _, err := fo.Write(buf[:n]); err != nil {
+// 			return err
+// 		}
+// 	}
+// 	return nil
+// }

@@ -129,6 +129,39 @@ _Noreturn void die2(const char *msg1, const char *msg2)
     dien();
 }
 
+void init_rlimit()
+{
+    // Set the hard limit for number of open fds much larger. The kernel sets
+    // a limit of 4096 for historical reasons, and this limit is too low for
+    // some software. According to the systemd developers, there is no downside
+    // to a large hard limit in modern Linux kernels.
+    //
+    // Retain the small soft limit of 1024 for appcompat.
+    struct rlimit rlim = {
+        .rlim_cur = 1024,
+        .rlim_max = 1024 * 1024,
+    };
+    if (setrlimit(RLIMIT_NOFILE, &rlim) < 0)
+    {
+        die("setrlimit(RLIMIT_NOFILE)");
+    }
+}
+
+void init_dev()
+{
+    if (mount("dev", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, NULL) < 0)
+    {
+        warn2("mount", "/dev");
+        // /dev will be already mounted if devtmpfs.mount = 1 on the kernel
+        // command line or CONFIG_DEVTMPFS_MOUNT is set. Do not consider this
+        // an error.
+        if (errno != EBUSY)
+        {
+            dien();
+        }
+    }
+}
+
 void init_fs(const struct InitOp *ops, size_t count)
 {
     for (size_t i = 0; i < count; i++)
@@ -421,6 +454,8 @@ int main(int argc, char **argv)
     sigfillset(&set);
     sigprocmask(SIG_BLOCK, &set, 0);
 
+    init_rlimit();
+    init_dev();
     init_fs(ops, sizeof(ops) / sizeof(ops[0]));
 
     init_cgroups();

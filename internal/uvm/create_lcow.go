@@ -322,6 +322,12 @@ func makeLCOWVMGSDoc(ctx context.Context, opts *OptionsLCOW, uvm *UtilityVM) (_ 
 		return nil, fmt.Errorf("the DM Verity VHD file '%s' was not found", dmVerityRootFsFullPath)
 	}
 
+	// The root file system comes from the dmverity vhd file which is mounted by the initrd in the vmgs file.
+	dmVerityHashFullPath := filepath.Join(opts.BootFilesPath, "hash_device")
+	if _, err := os.Stat(dmVerityHashFullPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("the DM Verity Hash file '%s' was not found", dmVerityHashFullPath)
+	}
+
 	var processor *hcsschema.Processor2
 	processor, err = fetchProcessor(ctx, opts, uvm)
 	if err != nil {
@@ -423,10 +429,16 @@ func makeLCOWVMGSDoc(ctx context.Context, opts *OptionsLCOW, uvm *UtilityVM) (_ 
 						Path:     dmVerityRootFsFullPath,
 						ReadOnly: true,
 					},
+					"1": hcsschema.Attachment{
+						Type_:    "VirtualDisk",
+						Path:     dmVerityHashFullPath,
+						ReadOnly: true,
+					},
 				},
 			},
 		}
 		uvm.reservedSCSISlots = append(uvm.reservedSCSISlots, scsi.Slot{Controller: 0, LUN: 0})
+		uvm.reservedSCSISlots = append(uvm.reservedSCSISlots, scsi.Slot{Controller: 0, LUN: 1})
 		for i := 0; i < int(uvm.scsiControllerCount); i++ {
 			doc.VirtualMachine.Devices.Scsi[guestrequest.ScsiControllerGuids[i]] = hcsschema.Scsi{
 				Attachments: make(map[string]hcsschema.Attachment),

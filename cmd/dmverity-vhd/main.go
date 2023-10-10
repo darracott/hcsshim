@@ -31,6 +31,8 @@ const (
 	dockerFlag        = "docker"
 	tarballFlag       = "tarball"
 	FsTarballFlag     = "fs-tarball"
+	noSuperblock      = "no-superblock"
+	toVHD             = "to-vhd"
 	hashDeviceVhdFlag = "hash-dev-vhd"
 	maxVHDSize        = dmverity.RecommendedVHDSizeGB
 )
@@ -153,11 +155,40 @@ var convertTarCommand = cli.Command{
 			Usage:    "Required: output directory path",
 			Required: true,
 		},
+		cli.BoolFlag{
+			Name:     noSuperblock + ",ns",
+			Usage:    "Optional: drops verity superblock",
+			Required: false,
+		},
+		cli.BoolFlag{
+			Name:     toVHD + ",vhd",
+			Usage:    "Optional: adds VHD footer",
+			Required: false,
+		},
 	},
 	Action: func(ctx *cli.Context) error {
 		verbose := ctx.GlobalBool(verboseFlag)
 		if verbose {
 			log.SetLevel(log.DebugLevel)
+		}
+
+		toVHD := ctx.Bool(toVHD)
+		if toVHD {
+			log.Debug("Adding VHD footer")
+			fsTarballPath := ctx.String(FsTarballFlag)
+			in := os.Stdin
+			var err error
+			if fsTarballPath != "" {
+				in, err = os.OpenFile(fsTarballPath, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+				if err != nil {
+					return err
+				}
+			}
+			if err := tar2ext4.ConvertToVhd(in); err != nil {
+				return errors.Wrap(err, "failed to append VHD footer")
+			}
+			fmt.Fprintf(os.Stdout, "VHD created at %s\n", fsTarballPath)
+			return nil
 		}
 
 		outDir := ctx.String(outputDirFlag)
@@ -169,48 +200,90 @@ var convertTarCommand = cli.Command{
 		}
 
 		log.Debug("creating VHD with dm-verity:")
+		// 9/10/2023 swap out -> in
+		// vhdName := filepath.Base(ctx.String(FsTarballFlag)) + ".vhd"
 		vhdName := strings.Replace(filepath.Base(ctx.String(FsTarballFlag)), ".tar", ".vhd", 1)
+		// ext4Name := strings.Replace(filepath.Base(ctx.String(FsTarballFlag)), ".tar", ".ext4", 1)
+		// ext4TreeName := strings.Replace(filepath.Base(ctx.String(FsTarballFlag)), ".tar", ".ext4tree", 1)
 		vhdPath := filepath.Join(ctx.String(outputDirFlag), vhdName)
+		// ext4Path := filepath.Join(ctx.String(outputDirFlag), ext4Name)
+		// ext4TreePath := filepath.Join(ctx.String(outputDirFlag), ext4TreeName)
+
+		// 9/10/2023 swap out -> in
 		out, err := os.Create(vhdPath)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create vhd %s", vhdPath)
 		}
 
+		// outExt4, err := os.Create(ext4Path)
+		// if err != nil {
+		// 	return errors.Wrapf(err, "failed to create ext4 %s", ext4Path)
+		// }
+		// outExt4Tree, err := os.Create(ext4TreePath)
+		// if err != nil {
+		// 	return errors.Wrapf(err, "failed to create ext4 %s", ext4TreePath)
+		// }
+
 		fsTarballPath := ctx.String(FsTarballFlag)
 		in := os.Stdin
+		// var err error
 		if fsTarballPath != "" {
 			in, err = os.Open(fsTarballPath)
+			// 09/10/2023 swap out -> in
+			// start temp comment out for test on 09/10/2023
 			if err != nil {
 				return err
 			}
 		}
-
+		noSuperblock := ctx.Bool(noSuperblock)
 		log.Debug("converting tar to VHD")
 		opts := []tar2ext4.Option{
 			tar2ext4.AppendDMVerity,
-			tar2ext4.MaximumDiskSize(maxVHDSize),
+			tar2ext4.MaximumDiskSize(maxVHDSize), // think about This
+			tar2ext4.NoSuperblock(noSuperblock),
 		}
-		if err := tar2ext4.Convert(in, out, opts...); err != nil {
+		dmVerityInfo, err := tar2ext4.Convert(in, vhdPath, out, opts...)
+		if err != nil {
 			return errors.Wrap(err, "failed to convert tar to ext4")
 		}
+		// end temp comment out for test on 09/10/2023
+
+		// FS is all good here and still matching the merkle tree (it now has a tree embedded but we know for sure the kernel is handling that)
+
+		// So it must be this step that breaks it
+
+		// temp 9/10/2023 swap out -> in
 		if err := tar2ext4.ConvertToVhd(out); err != nil {
 			return errors.Wrap(err, "failed to append VHD footer")
 		}
-		fmt.Fprintf(os.Stdout, "Tarball %d: VHD created at %s\n", fsTarballPath, vhdPath)
+		// temp 9/10/2023 swap out -> in
+		fmt.Fprintf(os.Stdout, "Tarball %s: VHD created at %s\n", fsTarballPath, vhdPath)
 
-		// Get size of device data without hash data
-		sb, err := tar2ext4.ReadExt4SuperBlock(vhdPath)
-		if err != nil {
-			return errors.Wrap(err, "failed to read ext4 super block")
-		}
-		blockSize := 1024 * (1 << sb.LogBlockSize)
-		ext4SizeInBytes := int64(blockSize) * int64(sb.BlocksCountLow)
+		// if noSuperblock == false {
+		// 	// Get size of device data without hash data
+		// 	sb, err := tar2ext4.ReadExt4SuperBlock(vhdPath)
+		// 	if err != nil {
+		// 		return errors.Wrap(err, "failed to read ext4 super block")
+		// 	}
+		// 	blockSize := 1024 * (1 << sb.LogBlockSize)
+		// 	ext4SizeInBytes := int64(blockSize) * int64(sb.BlocksCountLow)
+		// 	dmvsb, err := dmverity.ReadDMVerityInfo(vhdPath, ext4SizeInBytes)
+		// 	if err != nil {
+		// 		return errors.Wrap(err, "failed to read dm-verity super block")
+		// 	}
+		// }
 
-		dmvsb, err := dmverity.ReadDMVerityInfo(vhdPath, ext4SizeInBytes)
-		if err != nil {
-			return errors.Wrap(err, "failed to read dm-verity super block")
-		}
-		fmt.Fprintf(os.Stdout, "Tarball %d: VHD created at %s\nRootHash: %s\n", fsTarballPath, vhdPath, dmvsb.RootDigest)
+		// temp 9/10/2023 swap out -> in
+		fmt.Fprintf(
+			os.Stdout, "From Tarball: %s created VHD at: %s\nRootDigest: %v\nHashOffsetInBlocks: %v\nSalt: %v\nAlgorithm: %v\nDataBlockSize: %v\nHashBlockSize: %v\nDataBlocks: %v\n",
+			fsTarballPath, vhdPath,
+			dmVerityInfo.RootDigest,
+			dmVerityInfo.HashOffsetInBlocks,
+			dmVerityInfo.Salt,
+			dmVerityInfo.Algorithm,
+			dmVerityInfo.DataBlockSize,
+			dmVerityInfo.HashBlockSize,
+			dmVerityInfo.DataBlocks)
 		return nil
 	},
 }
@@ -292,7 +365,11 @@ func createVHD(layer v1.Layer, outDir string, verityHashDev bool) error {
 	defer rc.Close()
 
 	vhdPath := filepath.Join(outDir, diffID.Hex+".vhd")
+	// ext4Path := filepath.Join(outDir, diffID.Hex+".ext44")
+	// ext4TreePath := filepath.Join(outDir, diffID.Hex+".ext4Tree")
 	out, err := os.Create(vhdPath)
+	// outExt4, _ := os.Create(ext4Path)
+	// outExt4Tree, _ := os.Create(ext4TreePath)
 	if err != nil {
 		return fmt.Errorf("failed to create layer vhd file %s: %w", vhdPath, err)
 	}
@@ -305,7 +382,7 @@ func createVHD(layer v1.Layer, outDir string, verityHashDev bool) error {
 	if !verityHashDev {
 		opts = append(opts, tar2ext4.AppendDMVerity)
 	}
-	if err := tar2ext4.Convert(rc, out, opts...); err != nil {
+	if _, err := tar2ext4.Convert(rc, vhdPath, out, opts...); err != nil {
 		return fmt.Errorf("failed to convert tar to ext4: %w", err)
 	}
 	if verityHashDev {
@@ -316,7 +393,7 @@ func createVHD(layer v1.Layer, outDir string, verityHashDev bool) error {
 		}
 		defer hashDev.Close()
 
-		if err := dmverity.ComputeAndWriteHashDevice(out, hashDev); err != nil {
+		if _, err := dmverity.ComputeAndWriteHashDevice(out, hashDev, false); err != nil {
 			return err
 		}
 		if err := tar2ext4.ConvertToVhd(hashDev); err != nil {
