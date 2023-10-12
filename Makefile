@@ -39,6 +39,7 @@ VMGS_TOOL:=src/Parma/bin/vmgstool
 IGVM_TOOL:=src/Parma/kernel-files/5.15/igvmfile.py
 # this is now a 5.15 kernel
 KERNEL_PATH:=linux/linux/arch/x86/boot/bzImage
+# 5.15 kernel from Parma - no dm at boot stuff KERNEL_PATH:=src/Parma/kernel-files/5.15/bzImage
 
 .PHONY: all always rootfs test
 
@@ -96,14 +97,15 @@ VERITY_DEVICE:=/dev/sdb
 # HASH_BLOCK_SIZE=$(DATA_BLOCK_SIZE)
 # NUM_SECTORS=$(shell cat out/dmverity_rootfs.datasectors)
 
+out/simple.bin: out/kernelinitrd.cpio.gz
+	python3 $(SRC)/$(IGVM_TOOL) -o out/simple.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 rdinit=/startup_simple.sh" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+
 out/v2056.bin: out/kernelinitrd.cpio.gz
 	rm -f $@
-	python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 2 ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
-
-	# python3 $(SRC)/$(IGVM_TOOL) -o out/v2056a.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/bin/bash.bash dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt)\" -- -c /startup_2.sh " -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	# python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/bin/bash.bash dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt)\" -- -c /startup_2.sh " -rdinit out/kernelinitrd.cpio.gz -vtl 0
 #	THIS WORKS inc. rootswitch 
-	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056a.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
-# not working	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056a.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/simpleinit dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+# not working	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/simpleinit dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
     # Remember to REFORMAT the VHD WITH --no-superblock
     # dm-verity, <name> x
     # <blank>,   <uuid> x
@@ -131,7 +133,7 @@ out/kernelinitrd.bin: out/kernelinitrd.cpio.gz
     # python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh" -rdinit out/kernelinitrd.cpio.gz -vtl 0
 
 
-out/kernelinitrd.cpio.gz: out/dm-startup.sh out/startup_v2056.sh
+out/kernelinitrd.cpio.gz: out/dm-startup.sh out/startup_v2056.sh startup_simple.sh
     # The filesystem built up in kernelinitrd-rootfs is only used temporarily in order to
     # mount and switch to the dmverity backed rootfs (dmverity_rootfs.vhd).
 	rm -rf kernelinitrd-rootfs
@@ -141,7 +143,9 @@ out/kernelinitrd.cpio.gz: out/dm-startup.sh out/startup_v2056.sh
 	# cp bin/internal/tools/snp-report kernelinitrd-rootfs/bin/snp-report
 	cp out/dm-startup.sh kernelinitrd-rootfs/dm-startup.sh
 	cp out/startup_v2056.sh kernelinitrd-rootfs/startup_v2056.sh
+	cp startup_simple.sh kernelinitrd-rootfs/startup_simple.sh
 	chmod a+x kernelinitrd-rootfs/dm-startup.sh
+	chmod a+x kernelinitrd-rootfs/startup_v2056.sh
 	cp $(SRC)/src/Parma/bin/mkfs.xfs kernelinitrd-rootfs/bin/mkfs.xfs
 	chmod a+x kernelinitrd-rootfs/bin/mkfs.xfs
 

@@ -15,7 +15,7 @@ export HOME="/root"
 /bin/vsockexec -o 2056 sleep 2
 
 /bin/vsockexec -o 2056 ls -Rl /dev/
-/bin/vsockexec -o 2056 dmesg -c
+/bin/vsockexec -o 2056 dmesg
 
 #/bin/vsockexec -o 2056 echo blockdev...
 #/bin/vsockexec -o 2056 -e 2056 blockdev --getsize64 /dev/dm-0
@@ -24,7 +24,7 @@ export HOME="/root"
 #
 ## Try using veritysetup with --no-superblock to open the verity device
 ## /bin/vsockexec -o 2056 echo veritysetup open...
-## /bin/vsockexec -o 2056 -e 2056 veritysetup --no-superblock open --data-blocks <BLOCK_COUNT> --data-block-size 4096 --hash-offset <HASH_OFFSET> /dev/sda verityrootfs /dev/sda <ROOT_HASH>
+## /bin/vsockexec -o 2056 -e 2056 veritysetup --no-superblock open --data-blocks 22679 --data-block-size 4096 --hash-offset 92893184 /dev/sda verityrootfs /dev/sda d7bfb99c477f0a8fdbe92fe4f548bb48727daa37d1455dbfba8309e17ab91cac
 #
 ## /bin/vsockexec -o 2056 ls -Rl /dev/
 ## /bin/vsockexec -o 2056 dmesg
@@ -53,7 +53,7 @@ export HOME="/root"
 #sleep 1
 #/bin/vsockexec -o 2056 echo Thats all folks...
 #
-## /bin/vsockexec -o 2056 -e 2056 veritysetup --no-superblock open --data-blocks <BLOCK_COUNT> --data-block-size 4096 --hash-offset <HASH_OFFSET> /dev/sda verityrootfs /dev/sda <ROOT_HASH>
+## /bin/vsockexec -o 2056 -e 2056 veritysetup --no-superblock open --data-blocks 22679 --data-block-size 4096 --hash-offset 92893184 /dev/sda verityrootfs /dev/sda d7bfb99c477f0a8fdbe92fe4f548bb48727daa37d1455dbfba8309e17ab91cac
 #
 #
 #/bin/vsockexec -o 2056 -e 2056 echo dd if=/dev/dm-0 bs=4096 skip=0 count=1 of=dm-0head0.ext4
@@ -120,23 +120,23 @@ export HOME="/root"
 #/bin/vsockexec -o 2056 -e 2056 echo veritysetup format --debug --salt 0000000000000000000000000000000000000000000000000000000000000000 --no-superblock --data-blocks 35765 --data-block-size 4096 --hash-offset 146493440 /dev/dm-0 /dev/dm-0
 #/bin/vsockexec -o 2056 -e 2056 veritysetup format --debug --salt 0000000000000000000000000000000000000000000000000000000000000000 --no-superblock --data-blocks 35765 --data-block-size 4096 --hash-offset 146493440 /dev/dm-0 /dev/dm-0
 #
-/bin/vsockexec -o 2056 dmesg -c
+#/bin/vsockexec -o 2056 dmesg
 #
 #
-/bin/vsockexec -o 2056 -e 2056 echo blockdev...
-/bin/vsockexec -o 2056 -e 2056 blockdev --getsize64 /dev/dm-0
-/bin/vsockexec -o 2056 -e 2056 blockdev --getsize64 /dev/sda
-/bin/vsockexec -o 2056 dmesg
+#/bin/vsockexec -o 2056 -e 2056 echo blockdev...
+#/bin/vsockexec -o 2056 -e 2056 blockdev --getsize64 /dev/dm-0
+#/bin/vsockexec -o 2056 -e 2056 blockdev --getsize64 /dev/sda
+#/bin/vsockexec -o 2056 dmesg
 #
-/bin/vsockexec -o 2056 -e 2056 echo mkdir /rootfs-mount
-/bin/vsockexec -o 2056 -e 2056 mkdir /rootfs-mount
+#/bin/vsockexec -o 2056 -e 2056 echo mkdir /rootfs-mount
+#/bin/vsockexec -o 2056 -e 2056 mkdir /rootfs-mount
 #
-/bin/vsockexec -o 2056 -e 2056 echo /bin/mount /dev/dm-0 /rootfs-mount
-/bin/vsockexec -o 2056 -e 2056 /bin/mount /dev/dm-0 /rootfs-mount
-/bin/vsockexec -o 2056 -e 2056 echo ls -Rl /rootfs-mount
-/bin/vsockexec -o 2056 -e 2056 ls -Rl /rootfs-mount
+#/bin/vsockexec -o 2056 -e 2056 echo /bin/mount /dev/dm-0 /rootfs-mount
+#/bin/vsockexec -o 2056 -e 2056 /bin/mount /dev/dm-0 /rootfs-mount
+#/bin/vsockexec -o 2056 -e 2056 echo ls -Rl /rootfs-mount
+#/bin/vsockexec -o 2056 -e 2056 ls -Rl /rootfs-mount
 #
-switch_root /rootfs-mount /startup_2.sh
+## switch_root /rootfs-mount /startup_2.sh
 #
 #
 #
