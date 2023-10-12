@@ -70,15 +70,15 @@ out/dmverity_rootfs_nosb.vhd: out/dmverity_rootfs.vhd
 
 out/kernelinitrd.vmgs: out/kernelinitrd.bin
 	rm -f $@
-	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 67108864
+	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 41943040
 	$(SRC)/$(VMGS_TOOL) write --filepath $@ --datapath out/kernelinitrd.bin -i=8
 
 out/v2056.vmgs: out/v2056.bin
 	rm -f $@
 	rm -f out/v2056a.vmgs
-	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 67108864
+	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 41943040
 	$(SRC)/$(VMGS_TOOL) write --filepath $@ --datapath out/v2056.bin -i=8
-	$(SRC)/$(VMGS_TOOL) create --filepath out/v2056a.vmgs --filesize 67108864
+	$(SRC)/$(VMGS_TOOL) create --filepath out/v2056a.vmgs --filesize 41943040
 	$(SRC)/$(VMGS_TOOL) write --filepath out/v2056a.vmgs --datapath out/v2056a.bin -i=8
 
 ROOTFS_DEVICE:=/dev/sda
