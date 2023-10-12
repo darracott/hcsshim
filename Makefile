@@ -34,10 +34,11 @@ GCS_TOOLS=\
 	generichook \
 	install-drivers
 
-VMGS_TOOL:=/home/jp1/ham/src/Parma/bin/vmgstool
-IGVM_TOOL:=/home/jp1/ham/linux/LSG-linux-rolling/scripts/igvmfile.py
+SRC:=
+VMGS_TOOL:=src/Parma/bin/vmgstool
+IGVM_TOOL:=linux/LSG-linux-rolling/scripts/igvmfile.py
 # this is now a 5.15 kernel
-KERNEL_PATH:=/home/jp1/ham/linux/LSG-linux-rolling/arch/x86/boot/bzImage
+KERNEL_PATH:=linux/LSG-linux-rolling/arch/x86/boot/bzImage
 
 .PHONY: all always rootfs test
 
@@ -60,25 +61,25 @@ out/hash_device.vhd: out/hash_device
 	cp out/hash_device $@
 	./bin/cmd/dmverity-vhd -v convert --to-vhd --fst $@ -o foo
 
-out/hash_device: dmverity_rootfs.vhd
+out/hash_device: out/dmverity_rootfs.vhd
 	veritysetup format --no-superblock --salt 0000000000000000000000000000000000000000000000000000000000000000 out/dmverity_rootfs.vhd.ext4 $@
 
-out/dmverity_rootfs_nosb.vhd: dmverity_rootfs.vhd
+out/dmverity_rootfs_nosb.vhd: out/dmverity_rootfs.vhd
 	cp out/dmverity_rootfs.vhd.ext4 $@
 	./bin/cmd/dmverity-vhd -v convert --to-vhd --fst $@ -o foo
 
 out/kernelinitrd.vmgs: out/kernelinitrd.bin
 	rm -f $@
-	$(VMGS_TOOL) create --filepath $@ --filesize 67108864
-	$(VMGS_TOOL) write --filepath $@ --datapath out/kernelinitrd.bin -i=8
+	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 67108864
+	$(SRC)/$(VMGS_TOOL) write --filepath $@ --datapath out/kernelinitrd.bin -i=8
 
 out/v2056.vmgs: out/v2056.bin
 	rm -f $@
 	rm -f out/v2056a.vmgs
-	$(VMGS_TOOL) create --filepath $@ --filesize 67108864
-	$(VMGS_TOOL) write --filepath $@ --datapath out/v2056.bin -i=8
-	$(VMGS_TOOL) create --filepath out/v2056a.vmgs --filesize 67108864
-	$(VMGS_TOOL) write --filepath out/v2056a.vmgs --datapath out/v2056a.bin -i=8
+	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 67108864
+	$(SRC)/$(VMGS_TOOL) write --filepath $@ --datapath out/v2056.bin -i=8
+	$(SRC)/$(VMGS_TOOL) create --filepath out/v2056a.vmgs --filesize 67108864
+	$(SRC)/$(VMGS_TOOL) write --filepath out/v2056a.vmgs --datapath out/v2056a.bin -i=8
 
 ROOTFS_DEVICE:=/dev/sda
 VERITY_DEVICE:=/dev/sdb
@@ -92,10 +93,11 @@ VERITY_DEVICE:=/dev/sdb
 
 out/v2056.bin: out/kernelinitrd.cpio.gz
 	rm -f $@
-	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 2 ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 2 ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
 
-	# python3 $(IGVM_TOOL) -o out/v2056a.bin -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/bin/bash.bash dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt)\" -- -c /startup_2.sh " -rdinit out/kernelinitrd.cpio.gz -vtl 0
-	python3 $(IGVM_TOOL) -o out/v2056a.bin -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	# python3 $(SRC)/$(IGVM_TOOL) -o out/v2056a.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/bin/bash.bash dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt)\" -- -c /startup_2.sh " -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	THIS WORKS inc. rootswitch # python3 $(SRC)/$(IGVM_TOOL) -o out/v2056a.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056a.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/simpleinit dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
     # Remember to REFORMAT the VHD WITH --no-superblock
     # dm-verity, <name> x
     # <blank>,   <uuid> x
@@ -119,8 +121,8 @@ out/v2056.bin: out/kernelinitrd.cpio.gz
 
 out/kernelinitrd.bin: out/kernelinitrd.cpio.gz
 	rm -f $@
-	python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_2.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
-    # python3 $(IGVM_TOOL) -o $@ -kernel $(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_2.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+    # python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh" -rdinit out/kernelinitrd.cpio.gz -vtl 0
 
 
 out/kernelinitrd.cpio.gz: out/dm-startup.sh out/startup_v2056.sh
