@@ -51,7 +51,7 @@ func main() {
 		if *inlineData {
 			opts = append(opts, tar2ext4.InlineData)
 		}
-		err = tar2ext4.Convert(in, out, opts...)
+		_, err = tar2ext4.Convert(in, "./", out, opts...)
 		if err != nil {
 			return err
 		}

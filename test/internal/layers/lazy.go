@@ -157,7 +157,7 @@ func linuxExt4LayerExtractHandler() extractHandler {
 			tar2ext4.ConvertWhiteout,
 			tar2ext4.MaximumDiskSize(dmverity.RecommendedVHDSizeGB),
 		}
-		if err := tar2ext4.Convert(rc, f, convertOpts...); err != nil {
+		if _, err := tar2ext4.Convert(rc, "./", f, convertOpts...); err != nil {
 			return fmt.Errorf("convert to ext4 %s: %w", f.Name(), err)
 		}
 		if err := f.Sync(); err != nil {
@@ -182,7 +182,7 @@ func withAppendVerity(fn extractHandler) extractHandler {
 			return fmt.Errorf("unable to prepare file to append verity: %w", err)
 		}
 
-		if err := dmverity.ComputeAndWriteHashDevice(f, f); err != nil {
+		if _, err := dmverity.ComputeAndWriteHashDevice(f, f, false); err != nil {
 			return fmt.Errorf("unable to compute and append hash device: %w", err)
 		}
 		return nil

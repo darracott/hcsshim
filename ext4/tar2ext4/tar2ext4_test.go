@@ -85,7 +85,7 @@ func Test_UnorderedTarExpansion(t *testing.T) {
 	}
 	defer os.Remove(tmpVhdPath)
 
-	if err := Convert(layerTar, layerVhd, opts...); err != nil {
+	if _, err := Convert(layerTar, "./", layerVhd, opts...); err != nil {
 		t.Fatalf("failed to convert tar to layer vhd: %s", err)
 	}
 }
@@ -158,7 +158,7 @@ func Test_TarHardlinkToSymlink(t *testing.T) {
 	}
 	defer os.Remove(tmpVhdPath)
 
-	if err := Convert(layerTar, layerVhd, opts...); err != nil {
+	if _, err := Convert(layerTar, "./", layerVhd, opts...); err != nil {
 		t.Fatalf("failed to convert tar to layer vhd: %s", err)
 	}
 }

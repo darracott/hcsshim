@@ -36,9 +36,9 @@ GCS_TOOLS=\
 
 SRC:=
 VMGS_TOOL:=src/Parma/bin/vmgstool
-IGVM_TOOL:=linux/LSG-linux-rolling/scripts/igvmfile.py
+IGVM_TOOL:=src/Parma/kernel-files/5.15/igvmfile.py
 # this is now a 5.15 kernel
-KERNEL_PATH:=linux/LSG-linux-rolling/arch/x86/boot/bzImage
+KERNEL_PATH:=linux/linux/arch/x86/boot/bzImage
 
 .PHONY: all always rootfs test
 
@@ -136,7 +136,7 @@ out/kernelinitrd.cpio.gz: out/dm-startup.sh out/startup_v2056.sh
 	cp out/dm-startup.sh kernelinitrd-rootfs/dm-startup.sh
 	cp out/startup_v2056.sh kernelinitrd-rootfs/startup_v2056.sh
 	chmod a+x kernelinitrd-rootfs/dm-startup.sh
-	cp /home/jp1/ham/src/Parma/bin/mkfs.xfs kernelinitrd-rootfs/bin/mkfs.xfs
+	cp $(SRC)/src/Parma/bin/mkfs.xfs kernelinitrd-rootfs/bin/mkfs.xfs
 	chmod a+x kernelinitrd-rootfs/bin/mkfs.xfs
 
     # Reduce kernelinitrd size by removing unnecessary files
@@ -201,7 +201,7 @@ out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2
 	cp startup_2.sh dmverity-rootfs-conv/startup_2.sh
 	chmod a+x dmverity-rootfs-conv/startup_2.sh
 	cp bin/init2 dmverity-rootfs-conv/init2
-	cp /home/jp1/ham/src/Parma/bin/mkfs.xfs dmverity-rootfs-conv/bin/mkfs.xfs
+	cp $(SRC)/src/Parma/bin/mkfs.xfs dmverity-rootfs-conv/bin/mkfs.xfs
 	chmod a+x dmverity-rootfs-conv/bin/mkfs.xfs
 	tar -zcf $@ -C dmverity-rootfs-conv .
 	# rm -rf dmverity-rootfs-conv
