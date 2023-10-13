@@ -73,7 +73,8 @@ out/dmverity_rootfs_nosb.vhd: out/dmverity_rootfs.vhd
 
 %.vmgs: %.bin
 	rm -f $@
-	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize 41943040
+	# du -BM returns the size of the bin file in M, eg 7M. The sed command replaces the M with *1024*1024 and then bc does the math to convert to bytes
+	$(SRC)/$(VMGS_TOOL) create --filepath $@ --filesize `du -BM $< | sed  "s/M.*/*1024*1024/" | bc`
 	$(SRC)/$(VMGS_TOOL) write --filepath $@ --datapath $< -i=8
 
 
@@ -98,7 +99,7 @@ out/v2056.bin: out/kernelinitrd.cpio.gz
 	# python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_v2056.sh dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
 # experimental with testprint (worked)
 #	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\" init=/bin/testprint"  -vtl 0
-# experimental 
+# experimental - works
 	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\" init=/startup_simple.sh"  -vtl 0
 # not working	python3 $(SRC)/$(IGVM_TOOL) -o out/v2056.bin -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 init=/simpleinit dm-mod.create=\"jp1dmverityrfs,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) 1 ignore_corruption\"" -rdinit out/kernelinitrd.cpio.gz -vtl 0
     # Remember to REFORMAT the VHD WITH --no-superblock
@@ -124,7 +125,7 @@ out/v2056.bin: out/kernelinitrd.cpio.gz
 
 out/kernelinitrd.bin: out/kernelinitrd.cpio.gz
 	rm -f $@
-	python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup_2.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) ignore_corruption ignore_zero_blocks" -rdinit out/kernelinitrd.cpio.gz -vtl 0
+	python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/dm-0 rdinit=/startup.sh dm-mod.create=dm-0,,,ro,0 $(shell cat out/dmverity_rootfs.datasectors) verity 1 $(ROOTFS_DEVICE) $(VERITY_DEVICE) $(shell cat out/dmverity_rootfs.datablocksize) $(shell cat out/dmverity_rootfs.hashblocksize) $(shell cat out/dmverity_rootfs.datablocks) 0 sha256 $(shell cat out/dmverity_rootfs.rootdigest) $(shell cat out/dmverity_rootfs.salt) ignore_corruption ignore_zero_blocks" -vtl 0
     # python3 $(SRC)/$(IGVM_TOOL) -o $@ -kernel $(SRC)/$(KERNEL_PATH) -append "8250_core.nr_uarts=0 panic=-1 debug loglevel=7 root=/dev/sda rdinit=/dm-startup.sh" -rdinit out/kernelinitrd.cpio.gz -vtl 0
 
 
@@ -198,14 +199,17 @@ out/dmverity_rootfs.vhd: out/dmverity_rootfs.tar.gz bin/cmd/dmverity-vhd
 
 
 
-out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2 startup_simple.sh
+out/dmverity_rootfs.tar.gz: out/initrd.img bin/init2 startup_simple.sh startup.sh startup_2.sh
     # The filesystem built in dmverity-rootfs-conv eventually becomes the Pod's root filesystem
 	rm -rf dmverity-rootfs-conv
 	mkdir dmverity-rootfs-conv
 	gunzip -c out/initrd.img | (cd dmverity-rootfs-conv && cpio -imd)
 	cp startup_2.sh dmverity-rootfs-conv/startup_2.sh
+	cp startup.sh dmverity-rootfs-conv/startup.sh
 	cp startup_simple.sh dmverity-rootfs-conv/startup_simple.sh
 	chmod a+x dmverity-rootfs-conv/startup_2.sh
+	chmod a+x dmverity-rootfs-conv/startup.sh
+	chmod a+x dmverity-rootfs-conv/startup_simple.sh
 	cp bin/init2 dmverity-rootfs-conv/init2
 	cp $(SRC)/src/Parma/bin/mkfs.xfs dmverity-rootfs-conv/bin/mkfs.xfs
 	chmod a+x dmverity-rootfs-conv/bin/mkfs.xfs
