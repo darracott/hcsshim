@@ -71,7 +71,8 @@ const (
 	// DmVerityVhdFile is the default file name for a dmverity_rootfs.vhd which
 	// is mounted by the GuestStateFile during boot and used as the root file
 	// system when booting in the SNP case.
-	DmVerityVhdFile = "dmverity_rootfs.vhd"
+	DefaultDmVerityRootfsVhd = "dmverity-rootfs.vhd"
+	DefaultDmVerityHashVhd   = "hash-device.vhd"
 	// KernelFile is the default file name for a kernel used to boot LCOW.
 	KernelFile = "kernel"
 	// UncompressedKernelFile is the default file name for an uncompressed
@@ -80,7 +81,7 @@ const (
 	// GuestStateFile is the default file name for a vmgs (VM Guest State) file
 	// which combines kernel and initrd and is used to mount DmVerityVhdFile
 	// when booting in the SNP case.
-	GuestStateFile = "kernelinitrd.vmgs"
+	DefaultGuestStateFile = "kernelinitrd.vmgs"
 	// UVMReferenceInfoFile is the default file name for a COSE_Sign1
 	// reference UVM info, which can be made available to workload containers
 	// and can be used for validation purposes.
@@ -95,7 +96,9 @@ type ConfidentialOptions struct {
 	SecurityPolicyEnforcer string // Set which security policy enforcer to use (open door, standard or rego). This allows for better fallback mechanic.
 	UVMReferenceInfoFile   string // Filename under `BootFilesPath` for (potentially signed) UVM image reference information.
 	BundleDirectory        string // pod bundle directory
-	DmVerityVhdFile        string // The VHD file (bound to the vmgs file via embedded dmverity data) to load.
+	DmVerityRootFsVhd      string // The VHD file (bound to the vmgs file via embedded dmverity hash data file) to load.
+	DmVerityHashVhd        string // The VHD file containing the hash tree
+	DmVerityMode           bool   // override to be able to turn off dmverity for debugging
 }
 
 // OptionsLCOW are the set of options passed to CreateLCOW() to create a utility vm.
@@ -176,11 +179,7 @@ func NewDefaultOptionsLCOW(id, owner string) *OptionsLCOW {
 		},
 	}
 
-	if _, err := os.Stat(filepath.Join(opts.BootFilesPath, DmVerityVhdFile)); err == nil {
-		// We have a DmVerityVhdFile in the boot files path.
-		opts.RootFSFile = ""
-		opts.PreferredRootFSType = PreferredRootFSTypeNA
-	} else if _, err := os.Stat(filepath.Join(opts.BootFilesPath, VhdFile)); err == nil {
+	if _, err := os.Stat(filepath.Join(opts.BootFilesPath, VhdFile)); err == nil {
 		// We have a rootfs.vhd in the boot files path. Use it over an initrd.img
 		opts.RootFSFile = VhdFile
 		opts.PreferredRootFSType = PreferredRootFSTypeVHD
@@ -317,13 +316,13 @@ func makeLCOWVMGSDoc(ctx context.Context, opts *OptionsLCOW, uvm *UtilityVM) (_ 
 	}
 
 	// The root file system comes from the dmverity vhd file which is mounted by the initrd in the vmgs file.
-	dmVerityRootFsFullPath := filepath.Join(opts.BootFilesPath, opts.DmVerityVhdFile)
+	dmVerityRootFsFullPath := filepath.Join(opts.BootFilesPath, opts.DmVerityRootFsVhd)
 	if _, err := os.Stat(dmVerityRootFsFullPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("the DM Verity VHD file '%s' was not found", dmVerityRootFsFullPath)
 	}
 
 	// The root file system comes from the dmverity vhd file which is mounted by the initrd in the vmgs file.
-	dmVerityHashFullPath := filepath.Join(opts.BootFilesPath, "hash_device")
+	dmVerityHashFullPath := filepath.Join(opts.BootFilesPath, opts.DmVerityHashVhd)
 	if _, err := os.Stat(dmVerityHashFullPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("the DM Verity Hash file '%s' was not found", dmVerityHashFullPath)
 	}
@@ -402,7 +401,7 @@ func makeLCOWVMGSDoc(ctx context.Context, opts *OptionsLCOW, uvm *UtilityVM) (_ 
 	//		entropyVsockPort - 1 is the entropy port,
 	//		linuxLogVsockPort - 109 used by vsockexec to log stdout/stderr logging,
 	//		0x40000000 + 1 (LinuxGcsVsockPort + 1) is the bridge (see guestconnectiuon.go)
-	hvSockets := [...]uint32{entropyVsockPort, linuxLogVsockPort, gcs.LinuxGcsVsockPort, gcs.LinuxGcsVsockPort + 1}
+	hvSockets := [...]uint32{entropyVsockPort, linuxLogVsockPort, gcs.LinuxGcsVsockPort, gcs.LinuxGcsVsockPort + 1, 2056}
 	for _, whichSocket := range hvSockets {
 		key := fmt.Sprintf("%08x-facb-11e6-bd58-64006a7986d3", whichSocket) // format of a linux hvsock GUID is port#-facb-11e6-bd58-64006a7986d3
 		doc.VirtualMachine.Devices.HvSocket.HvSocketConfig.ServiceTable[key] = hcsschema.HvSocketServiceConfig{
@@ -421,24 +420,30 @@ func makeLCOWVMGSDoc(ctx context.Context, opts *OptionsLCOW, uvm *UtilityVM) (_ 
 	}
 
 	if uvm.scsiControllerCount > 0 {
-		doc.VirtualMachine.Devices.Scsi = map[string]hcsschema.Scsi{
-			"RootFileSystemVirtualDisk": hcsschema.Scsi{
-				Attachments: map[string]hcsschema.Attachment{
-					"0": hcsschema.Attachment{
-						Type_:    "VirtualDisk",
-						Path:     dmVerityRootFsFullPath,
-						ReadOnly: true,
-					},
-					"1": hcsschema.Attachment{
-						Type_:    "VirtualDisk",
-						Path:     dmVerityHashFullPath,
-						ReadOnly: true,
+		if opts.DmVerityMode == true {
+			logrus.Debug("makeLCOWVMGSDoc DmVerityMode true")
+			doc.VirtualMachine.Devices.Scsi = map[string]hcsschema.Scsi{
+				"RootFileSystemVirtualDisk": hcsschema.Scsi{
+					Attachments: map[string]hcsschema.Attachment{
+						"0": hcsschema.Attachment{
+							Type_:    "VirtualDisk",
+							Path:     dmVerityRootFsFullPath,
+							ReadOnly: true,
+						},
+						"1": hcsschema.Attachment{
+							Type_:    "VirtualDisk",
+							Path:     dmVerityHashFullPath,
+							ReadOnly: true,
+						},
 					},
 				},
-			},
+			}
+			uvm.reservedSCSISlots = append(uvm.reservedSCSISlots, scsi.Slot{Controller: 0, LUN: 0})
+			uvm.reservedSCSISlots = append(uvm.reservedSCSISlots, scsi.Slot{Controller: 0, LUN: 1})
+		} else {
+			logrus.Debug("makeLCOWVMGSDoc DmVerityMode false")
+			doc.VirtualMachine.Devices.Scsi = map[string]hcsschema.Scsi{}
 		}
-		uvm.reservedSCSISlots = append(uvm.reservedSCSISlots, scsi.Slot{Controller: 0, LUN: 0})
-		uvm.reservedSCSISlots = append(uvm.reservedSCSISlots, scsi.Slot{Controller: 0, LUN: 1})
 		for i := 0; i < int(uvm.scsiControllerCount); i++ {
 			doc.VirtualMachine.Devices.Scsi[guestrequest.ScsiControllerGuids[i]] = hcsschema.Scsi{
 				Attachments: make(map[string]hcsschema.Attachment),
@@ -548,7 +553,9 @@ Example JSON document produced once the hcsschema.ComputeSytem returned by makeL
 
 // Make the ComputeSystem document object that will be serialized to json to be presented to the HCS api.
 func makeLCOWDoc(ctx context.Context, opts *OptionsLCOW, uvm *UtilityVM) (_ *hcsschema.ComputeSystem, err error) {
-	logrus.Tracef("makeLCOWDoc %v\n", opts)
+	logrus.Debugf("makeLCOWDoc %v\n", opts)
+
+	log.G(ctx).WithFields(logrus.Fields{"options": fmt.Sprintf("%+v", *opts)}).Debug("makeLCOWDoc")
 
 	kernelFullPath := filepath.Join(opts.BootFilesPath, opts.KernelFile)
 	if _, err := os.Stat(kernelFullPath); os.IsNotExist(err) {
@@ -799,6 +806,8 @@ func CreateLCOW(ctx context.Context, opts *OptionsLCOW) (_ *UtilityVM, err error
 	span.AddAttributes(trace.StringAttribute(logfields.UVMID, opts.ID))
 	log.G(ctx).WithField("options", fmt.Sprintf("%+v", opts)).Debug("uvm::CreateLCOW options")
 
+	logrus.Debugf("CreateLCOW options: %+v", *opts)
+
 	// We don't serialize OutputHandlerCreator so if it is missing we need to put it back to the default.
 	if opts.OutputHandlerCreator == nil {
 		opts.OutputHandlerCreator = parseLogrus
@@ -850,6 +859,7 @@ func CreateLCOW(ctx context.Context, opts *OptionsLCOW) (_ *UtilityVM, err error
 		return nil, err
 	}
 
+	logrus.Debugf("CreateLCOW doc: %+v", doc)
 	if err = uvm.create(ctx, doc); err != nil {
 		return nil, fmt.Errorf("error while creating the compute system: %w", err)
 	}

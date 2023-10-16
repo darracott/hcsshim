@@ -410,7 +410,7 @@ int reap_until(pid_t until_pid)
 
 int main(int argc, char **argv)
 {
-    printf("Running init2\n");
+    // printf("Running init2\n");
     char *debug_shell = NULL;
     int entropy_port = 0;
     if (argc <= 1)

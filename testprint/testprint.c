@@ -34,12 +34,6 @@ static int opentcp(unsigned short port)
     return s;
 }
 
-_Noreturn static void usage(const char *argv0)
-{
-    fprintf(stderr, "%s [-i port] [-o port] [-e port] -- program [args...]\n", argv0);
-    exit(1);
-}
-
 int main(int argc, char **argv)
 {
     unsigned int ports[3] = {2056, 2056, 2056};

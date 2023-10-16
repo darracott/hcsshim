@@ -18,6 +18,45 @@
 #include <unistd.h>
 #include "../vsockexec/vsock.h"
 
+// vsockexec opens vsock connections for the specified stdio descriptors and
+// then execs the specified process.
+/*
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "vsock.h"
+*/
+
+#ifdef USE_TCP
+static const int tcpmode = 1;
+#else
+static const int tcpmode;
+#endif
+
+static int opentcp(unsigned short port)
+{
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) {
+        return -1;
+    }
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        return -1;
+    }
+
+    return s;
+}
+
+
+
 // musl-gcc doesn't use headers in /usr/include, so it can't find
 // linux/random.h which is where RNDADDENTROPY is defined. We only need this
 // single definition from linux/random.h, so we just duplicate it here as a
@@ -123,6 +162,7 @@ void warn2(const char *msg1, const char *msg2)
 
 _Noreturn void dien()
 {
+    printf("dien errno = %d", errno);
     exit(errno);
 }
 
@@ -159,7 +199,8 @@ void init_rlimit()
 void init_dev()
 {
     if (mount("dev", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, NULL) < 0)
-    {
+    {   
+        printf("mount - errno %d\n", errno);
         warn2("mount", "/dev");
         // /dev will be already mounted if devtmpfs.mount = 1 on the kernel
         // command line or CONFIG_DEVTMPFS_MOUNT is set. Do not consider this
@@ -180,6 +221,7 @@ void init_fs(const struct InitOp *ops, size_t count)
         case OpMount:
         {
             const struct Mount *m = &ops[i].mount;
+            printf("OpMount src %s target %s type %s flags %lu data %p\n", m->source, m->target, m->type, m->flags, m->data);
             if (mount(m->source, m->target, m->type, m->flags, m->data) < 0)
             {
                 die2("mount", m->target);
@@ -189,6 +231,7 @@ void init_fs(const struct InitOp *ops, size_t count)
         case OpMkdir:
         {
             const struct Mkdir *m = &ops[i].mkdir;
+            printf("OpMkdir path %s mode %d\n", m->path, m->mode);
             if (mkdir(m->path, m->mode) < 0)
             {
                 warn2("mkdir", m->path);
@@ -202,6 +245,7 @@ void init_fs(const struct InitOp *ops, size_t count)
         case OpMknod:
         {
             const struct Mknod *n = &ops[i].mknod;
+            printf("OpMknod path %s mode %d major %d minor %d\n", n->path, n->mode, n->major, n->minor);
             if (mknod(n->path, n->mode, makedev(n->major, n->minor)) < 0)
             {
                 warn2("mknod", n->path);
@@ -215,6 +259,7 @@ void init_fs(const struct InitOp *ops, size_t count)
         case OpSymlink:
         {
             const struct Symlink *sl = &ops[i].symlink;
+            printf("OpSymlink targeg %s link %s\n", sl->target, sl->linkpath);
             if (symlink(sl->target, sl->linkpath) < 0)
             {
                 warn2("symlink", sl->linkpath);
@@ -417,9 +462,9 @@ int reap_until(pid_t until_pid)
     }
 }
 
-int main(int argc, char **argv)
+int init_main(int argc, char **argv)
 {
-    // printf("Running init\n");
+    printf("Running init\n");
     char *debug_shell = NULL;
     int entropy_port = 0;
     if (argc <= 1)
@@ -441,6 +486,7 @@ int main(int argc, char **argv)
 
             case 'e':
                 entropy_port = atoi(optarg);
+                printf("entropy port %d\n", entropy_port);
                 if (entropy_port == 0)
                 {
                     fputs("invalid entropy port\n", stderr);
@@ -460,15 +506,22 @@ int main(int argc, char **argv)
 
     // Block all signals in init. SIGCHLD will still cause wait() to return.
     sigset_t set;
+    printf("sigfillset(&set)\n");
     sigfillset(&set);
+    printf("sigfillset\n");
     sigprocmask(SIG_BLOCK, &set, 0);
 
+    printf("init_rlimit\n");
     init_rlimit();
+    printf("init_dev\n");
     init_dev();
+    printf("init_fs\n");
     init_fs(ops, sizeof(ops) / sizeof(ops[0]));
 
+    printf("init_cgroups\n");
     init_cgroups();
 
+    printf("init_network\n");
     init_network("lo", AF_INET);
 
     init_network("lo", AF_INET6);
@@ -489,3 +542,46 @@ int main(int argc, char **argv)
     // Reap until the initial child process dies.
     return reap_until(pid);
 }
+
+
+int main(int argc, char **argv)
+{
+    unsigned int ports[3] = {2056, 2056, 2056};
+    int sockets[3] = {-1, -1, -1};
+
+    for (int i = 0; i < 3; i++) {
+        if (ports[i] != 0) {
+            int j;
+            for (j = 0; j < i; j++) {
+                if (ports[i] == ports[j]) {
+                    int s = dup(sockets[j]);
+                    if (s < 0) {
+                        perror("dup");
+                        return 1;
+                    }
+                    sockets[i] = s;
+                    break;
+                }
+            }
+
+            if (j == i) {
+                int s = tcpmode ? opentcp(ports[i]) : openvsock(VMADDR_CID_HOST, ports[i]);
+                if (s < 0) {
+                    fprintf(stderr, "connect: port %u: %s", ports[i], strerror(errno));
+                    return 1;
+                }
+                sockets[i] = s;
+            }
+        }
+    }
+
+    for (int i = 0; i < 3; i++) {
+        if (sockets[i] >= 0) {
+            dup2(sockets[i], i);
+            close(sockets[i]);
+        }
+    }
+
+    return init_main(argc, argv);
+}
+

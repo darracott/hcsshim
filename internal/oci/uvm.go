@@ -214,8 +214,10 @@ func handleSecurityPolicy(ctx context.Context, a map[string]string, lopts *uvm.O
 		// VPMem not supported by the enlightened kernel for SNP so set count to zero.
 		lopts.VPMemDeviceCount = 0
 		// set the default GuestState and DmVerityVhdFile filenames.
-		lopts.GuestStateFile = uvm.GuestStateFile
-		lopts.DmVerityVhdFile = uvm.DmVerityVhdFile
+		lopts.GuestStateFile = uvm.DefaultGuestStateFile
+		lopts.DmVerityRootFsVhd = uvm.DefaultDmVerityRootfsVhd
+		lopts.DmVerityHashVhd = uvm.DefaultDmVerityHashVhd
+		lopts.DmVerityMode = true
 		lopts.KernelBootOptions = ""
 		lopts.AllowOvercommit = false
 		lopts.SecurityPolicyEnabled = true
@@ -292,9 +294,11 @@ func SpecToUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner string) (
 		// Eg VMPem device count, overridden kernel option cannot be respected.
 		handleSecurityPolicy(ctx, s.Annotations, lopts)
 
-		// override the default GuestState and DmVerityVhdFile filenames if specified
+		// override the default GuestState and DmVerityRootFs/HashVhd filenames if specified
 		lopts.GuestStateFile = parseAnnotationsString(s.Annotations, annotations.GuestStateFile, lopts.GuestStateFile)
-		lopts.DmVerityVhdFile = parseAnnotationsString(s.Annotations, annotations.DmVerityVhdFile, lopts.DmVerityVhdFile)
+		lopts.DmVerityRootFsVhd = parseAnnotationsString(s.Annotations, annotations.DmVerityRootFsVhd, lopts.DmVerityRootFsVhd)
+		lopts.DmVerityHashVhd = parseAnnotationsString(s.Annotations, annotations.DmVerityHashVhd, lopts.DmVerityHashVhd)
+		lopts.DmVerityMode = ParseAnnotationsBool(ctx, s.Annotations, annotations.DmVerityMode, lopts.DmVerityMode)
 		// Set HclEnabled if specified. Else default to a null pointer, which is omitted from the resulting JSON.
 		lopts.HclEnabled = ParseAnnotationsNullableBool(ctx, s.Annotations, annotations.HclEnabled)
 		return lopts, nil

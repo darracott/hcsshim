@@ -73,6 +73,7 @@ func CreateComputeSystem(ctx context.Context, id string, hcsDocumentInterface in
 	}
 
 	hcsDocument := string(hcsDocumentB)
+	logrus.Debugf("\n\nhcsDocument:\n\n%s\n\n", hcsDocument)
 
 	var (
 		identity    syscall.Handle
